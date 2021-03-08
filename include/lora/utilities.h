@@ -31,6 +31,9 @@
 #define SM(value, shift, mask) (((value) << (shift)) & (mask))
 #define MS(value, mask, shift) (((value) & (mask)) >> (shift))
 
+#define  LORA_PREAMBLE_TOLERANCE 1 // used for judge the similarity of preamble chirps
+#define REQUIRED_PREAMBLE_CHIRPS 4
+
 namespace gr {
     namespace lora {
         static std::vector<std::string> term_colors = {
