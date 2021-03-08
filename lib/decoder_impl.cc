@@ -89,6 +89,7 @@ namespace gr {
             d_fine_sync = 0;
             d_enable_fine_sync = !disable_drift_correction;
             set_output_multiple(2 * d_samples_per_symbol);
+            d_preamble_offset = 0;
 
             std::cout << "Bits (nominal) per symbol: \t"      << d_bits_per_symbol    << std::endl;
             std::cout << "Bins per symbol: \t"      << d_number_of_bins     << std::endl;
@@ -106,6 +107,7 @@ namespace gr {
             build_ideal_chirps();
 
             // FFT decoding preparations
+            d_fft_detect.clear();
             d_fft.resize(d_samples_per_symbol);
             d_mult_hf.resize(d_samples_per_symbol);
             d_tmp.resize(d_number_of_bins);
@@ -424,11 +426,29 @@ namespace gr {
             return std::sqrt(variance);
         }
 
+
+
+
+
+
+        void fft_detect(const gr_complex *samples){
+            uint32_t max_bin= get_shift_fft(samples)
+            d_fft_vector.push_back(max_bin);
+        }
+        
+        uint32_t get_fft_bin(const gr_complex *samples ){
+            uint32_t max_bin= get_shift_fft(samples)
+            // consider the CFO
+            uint32_t res_bin= (max_bin + d_samples_per_symbol - d_preamble_offset) % d_number_of_bins
+            return res_bin;
+        }
+
+
         /**
          *  Currently unstable due to center frequency offset.
          */
         uint32_t decoder_impl::get_shift_fft(const gr_complex *samples) {
-            float fft_mag[d_number_of_bins];
+            float fft_mag[d_samples_per_symbol];
 
             samples_to_file("/tmp/data", &samples[0], d_samples_per_symbol, sizeof(gr_complex));
 
@@ -444,22 +464,28 @@ namespace gr {
 
             // Decimate. Note: assumes fft size is multiple of decimation factor and number of bins is even
             // This decimation should be identical to numpy's approach
+            
+            //maybe  some error
+            /*
             const uint32_t N = d_number_of_bins;
             memcpy(&d_tmp[0],               &d_fft[0],                                     (N + 1u) / 2u * sizeof(gr_complex));
             memcpy(&d_tmp[ (N + 1u) / 2u ], &d_fft[d_samples_per_symbol - (N / 2u)],        N / 2u * sizeof(gr_complex));
             d_tmp[N / 2u] += d_fft[N / 2u];
+            */
 
             // Get magnitude
-            for (uint32_t i = 0u; i < d_number_of_bins; i++) {
-                fft_mag[i] = std::abs(d_tmp[i]);
+            for (uint32_t i = 0u; i < d_samples_per_symbol; i++) {
+                fft_mag[i] = std::abs(d_fft[i]);
             }
 
-            samples_to_file("/tmp/fft", &d_tmp[0], d_number_of_bins, sizeof(gr_complex));
+            /*samples_to_file("/tmp/fft", &d_tmp[0], d_number_of_bins, sizeof(gr_complex));
 
             fft_execute(d_qr); // For debugging
             samples_to_file("/tmp/resampled", &d_mult_hf[0], d_number_of_bins, sizeof(gr_complex));
+            */
 
             // Return argmax here
+            // Still can be improved
             return (std::max_element(fft_mag, fft_mag + d_number_of_bins) - fft_mag);
         }
 
@@ -496,8 +522,8 @@ namespace gr {
 
             // DBGR_START_TIME_MEASUREMENT(false, "only");
 
-            uint32_t bin_idx = max_frequency_gradient_idx(samples);
-            //uint32_t bin_idx = get_shift_fft(samples);
+            //uint32_t bin_idx = max_frequency_gradient_idx(samples);
+            uint32_t bin_idx = get_fft_bin(samples);
             if(d_enable_fine_sync)
                 fine_sync(samples, bin_idx, std::max(d_decim_factor / 4u, 2u));
 
@@ -750,8 +776,9 @@ namespace gr {
 
             switch (d_state) {
                 case gr::lora::DecoderState::DETECT: {
-                    float correlation = detect_preamble_autocorr(input, d_samples_per_symbol);
 
+                    /*
+                    float correlation = detect_preamble_autocorr(input, d_samples_per_symbol);
                     if (correlation >= 0.90f) {
                         determine_snr();
                         #ifdef GRLORA_DEBUG
@@ -761,8 +788,37 @@ namespace gr {
                         d_state = gr::lora::DecoderState::SYNC;
                         break;
                     }
+                    */
 
-                    consume_each(d_samples_per_symbol);
+                    bool find_pream=true;
+
+                    fft_detect(input);
+
+
+                    if (d_fft_vector.size >= REQUIRED_PREAMBLE_CHIRPS){
+                        for (uint32_t i=1; i< REQUIRED_PREAMBLE_CHIRPS ; i++){
+                            if (abs(d_fft_vector[0] - d_fft_vector[i]) <= LORA_PREAMBLE_TOLERANCE)
+                                continue;
+                            else{
+                                find_pream=false;
+                                d_fft_vector.erase(d_fft_vector.begin());
+                                // It may cost a lot.
+                                consume_each(d_samples_per_symbol/d_d_number_of_bins)
+                                break;
+                            }
+                        }
+                        if (find_pream){
+                            // Attention! This offset may always be not presice.
+                            d_preamble_offset = d_fft_vector[0];
+                            d_fft_vector.clear();
+                            d_state = gr::lora::DecoderState::SYNC;
+                            consume_each(d_samples_per_symbol);
+                        }
+                    }
+
+                    
+
+                    
 
                     break;
                 }
