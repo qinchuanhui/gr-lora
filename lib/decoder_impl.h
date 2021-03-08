@@ -80,6 +80,9 @@ namespace gr {
                 std::vector<gr_complex> d_fft;              ///< Vector containing the FFT resuls.
                 std::vector<gr_complex> d_mult_hf;          ///< Vector containing the FFT decimation.
                 std::vector<gr_complex> d_tmp;              ///< Vector containing the FFT decimation.
+                
+                std::vector<uint32_t> d_fft_detect; /// Vector containing the argmax result when decting the preamble
+                uint32_t  d_preamble_offset; // Evaluate the offset of the bins.
 
                 bool             d_implicit;                ///< Implicit header mode.
                 bool             d_reduced_rate;            ///< Use reduced rate (only configurable in implicit header mode).
@@ -405,6 +408,14 @@ namespace gr {
                  *  \brief  TODO
                  */
                 void msg_lora_frame(void);
+
+                
+                /**
+                 *  \brief  Do the fft when detecting preamble, and put the result into the vector
+                 */
+                void fft_detect(const gr_complex *samples);
+
+                uint32_t get_fft_bin(const gr_complex *samples ); //Used in demodulation
 
             public:
                 /**
